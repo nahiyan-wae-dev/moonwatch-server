@@ -3,7 +3,7 @@ name: Moonvale monitor
 on:
   schedule:
     - cron: "*/15 * * * *"   # every 15 minutes (GitHub may start runs a few minutes late)
-  workflow_dispatch:          # lets you run it by hand from the Actions tab
+  workflow_dispatch:
     inputs:
       test:
         description: "Send a test notification instead of checking the site"
@@ -11,7 +11,7 @@ on:
         default: false
 
 permissions:
-  contents: write             # needed to save state.json back to the repo
+  contents: write
 
 concurrency:
   group: moonvale-monitor
@@ -24,14 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install FCM dependency
+        run: python3 -m pip install --disable-pip-version-check google-auth
+
       - name: Run monitor
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}
         run: |
           if [ "${{ inputs.test }}" = "true" ]; then
-            python3 monitor.py --test
+            python3 monitor_runner.py --test
           else
-            python3 monitor.py
+            python3 monitor_runner.py
           fi
 
       - name: Save state
