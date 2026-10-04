@@ -5,10 +5,10 @@ monitor.py is retained as a shared compatibility/parser module. This file is the
 only production monitor entry point and is the file invoked by GitHub Actions.
 """
 import json
-import os
 import sys
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import date
 
 import fcm_sender
@@ -108,13 +108,49 @@ def process_wp(src, state_entry, force_full):
         send_event(src["id"], f"{src['name']} edited (nothing visible)", f"Raw content changed. Modified: {modified} UTC", 2, "moon", src.get("page"), modified)
 
 
+def process_youtube(src, state_entry):
+    root = ET.fromstring(legacy.http_get(src["url"]))
+    ns = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+    videos = []
+    for entry in root.findall("a:entry", ns):
+        video_id = entry.findtext("yt:videoId", default="", namespaces=ns)
+        if not video_id:
+            continue
+        link_element = entry.find("a:link", ns)
+        link = link_element.get("href") if link_element is not None else f"https://www.youtube.com/watch?v={video_id}"
+        videos.append({
+            "id": video_id,
+            "title": entry.findtext("a:title", default="", namespaces=ns),
+            "link": link,
+        })
+    if not videos:
+        raise RuntimeError("no entries in feed")
+
+    current_ids = [video["id"] for video in videos]
+    seen = state_entry.get("videos")
+    if seen is None:
+        print(f"[{src['id']}] baseline saved")
+    else:
+        for video in [v for v in videos if v["id"] not in seen][:3]:
+            send_event(
+                src["id"],
+                "New Everbyte video",
+                video["title"],
+                4,
+                "movie_camera",
+                video["link"],
+                video["id"],
+            )
+    state_entry["videos"] = (current_ids + [i for i in (seen or []) if i not in current_ids])[:60]
+
+
 def run_source(src, state, force_full):
     entry = state["sources"].setdefault(src["id"], {})
     try:
         if src["kind"] == "wp":
             process_wp(src, entry, force_full)
         else:
-            legacy.process_youtube(src, entry)
+            process_youtube(src, entry)
     except Exception as exc:
         entry["fails"] = entry.get("fails", 0) + 1
         print(f"[{src['id']}] FAILED ({entry['fails']}): {type(exc).__name__}: {exc}")
