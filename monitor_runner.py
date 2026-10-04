@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Production runner for moonwatch-server: two-stage WP probes + FCM/ntfy."""
+"""Production entry point for moonwatch-server.
+
+monitor.py is retained as a shared compatibility/parser module. This file is the
+only production monitor entry point and is the file invoked by GitHub Actions.
+"""
 import json
 import os
 import sys
 import time
 import urllib.parse
-import urllib.request
 from datetime import date
 
 import fcm_sender
@@ -39,9 +42,9 @@ def fetch_full(src):
     return legacy.fetch_wp(src["url"])
 
 
-def send_event(source_id, title, body, priority, tags="moon", url=None, modified=""):
+def build_event(source_id, title, body, priority, url=None, modified=""):
     body = body[:MAX_BODY]
-    event = {
+    return {
         "event_id": stable_event_id(source_id, modified, legacy.sha(body)),
         "source_id": source_id,
         "title": title,
@@ -50,9 +53,19 @@ def send_event(source_id, title, body, priority, tags="moon", url=None, modified
         "url": url or "",
         "ts": str(int(time.time() * 1000)),
     }
+
+
+def send_event(source_id, title, body, priority, tags="moon", url=None, modified=""):
+    event = build_event(source_id, title, body, priority, url, modified)
+    body = event["body"]
     print(f"[EVENT {event['event_id']}] {title}\n{body}\n")
-    fcm_sender.send(event)
-    legacy.notify(title, body, priority, tags, url)
+
+    fcm_ok = fcm_sender.send(event)
+    if fcm_ok:
+        print("FCM delivered; ntfy fallback not sent")
+    else:
+        # FCM is optional. When absent or unavailable, ntfy is the fallback.
+        legacy.notify(title, body, priority, tags, url)
     return event
 
 
@@ -115,7 +128,12 @@ def run_source(src, state, force_full):
 
 def main():
     if "--test" in sys.argv:
-        send_event("test", "Moonwatch test", "FCM and ntfy transport test.", 3, "bell", None, "test")
+        event = build_event("test", "Moonwatch test", "FCM and ntfy transport test.", 3, None, "test")
+        print("Testing FCM transport...")
+        fcm_ok = fcm_sender.send(event)
+        print(f"FCM test result: {'OK' if fcm_ok else 'NOT CONFIGURED/FAILED'}")
+        print("Testing ntfy transport explicitly...")
+        legacy.notify(event["title"], event["body"], 3, "bell", None)
         return 0
     if "--show" in sys.argv:
         _, raw = fetch_full(legacy.SOURCES[0])
