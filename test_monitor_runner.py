@@ -20,15 +20,29 @@ class MonitorRunnerTests(unittest.TestCase):
             "https://example.test/wp-json/wp/v2/pages/33571?_fields=modified_gmt",
         )
 
-    def test_event_body_is_capped_and_both_transports_are_attempted(self):
-        captured = {}
-        with patch.object(monitor_runner.fcm_sender, "send", side_effect=lambda event: captured.setdefault("fcm", event)), \
-             patch.object(monitor_runner.legacy, "notify", side_effect=lambda *args: captured.setdefault("ntfy", args)):
+    def test_fcm_success_suppresses_ntfy(self):
+        with patch.object(monitor_runner.fcm_sender, "send", return_value=True) as fcm, \
+             patch.object(monitor_runner.legacy, "notify") as ntfy:
+            event = monitor_runner.send_event("tracker", "Title", "body", 4)
+        fcm.assert_called_once_with(event)
+        ntfy.assert_not_called()
+
+    def test_fcm_failure_falls_back_to_ntfy(self):
+        with patch.object(monitor_runner.fcm_sender, "send", return_value=False) as fcm, \
+             patch.object(monitor_runner.legacy, "notify") as ntfy:
             event = monitor_runner.send_event("tracker", "Title", "x" * 2000, 4)
+        fcm.assert_called_once_with(event)
+        ntfy.assert_called_once()
         self.assertEqual(len(event["body"]), 1500)
-        self.assertIn("fcm", captured)
-        self.assertIn("ntfy", captured)
-        self.assertEqual(captured["fcm"]["event_id"], event["event_id"])
+        self.assertEqual(ntfy.call_args.args[1], event["body"])
+
+    def test_test_mode_exercises_both_transports(self):
+        with patch.object(monitor_runner.fcm_sender, "send", return_value=True) as fcm, \
+             patch.object(monitor_runner.legacy, "notify") as ntfy, \
+             patch.object(monitor_runner.sys, "argv", ["monitor_runner.py", "--test"]):
+            self.assertEqual(monitor_runner.main(), 0)
+        fcm.assert_called_once()
+        ntfy.assert_called_once()
 
 
 if __name__ == "__main__":
