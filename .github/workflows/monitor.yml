@@ -27,6 +27,9 @@ jobs:
       - name: Install FCM dependency
         run: python3 -m pip install --disable-pip-version-check google-auth
 
+      - name: Run unit tests
+        run: python3 -m unittest -v test_monitor_runner.py
+
       - name: Run monitor
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
