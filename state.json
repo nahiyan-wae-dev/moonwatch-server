@@ -1,6 +1,6 @@
 {
  "heartbeat": "2026-10-04",
- "run_count": 11,
+ "run_count": 12,
  "sources": {
   "duskwood-side": {
    "fails": 0,
@@ -55,7 +55,7 @@
    }
   },
   "youtube": {
-   "fails": 0,
+   "fails": 1,
    "videos": [
     "6dx6mvA6xNU",
     "c_Hvp4jIQHA",
